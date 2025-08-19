@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Jarvis Voice Chat</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background:#0f1420; color:#e6ecff; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .row { display:flex; gap:8px; align-items:center; }
+    input[type=text] { flex:1; padding:12px; border-radius:8px; border:1px solid #223; background:#151b2d; color:#e6ecff; }
+    button { padding:12px 16px; border-radius:8px; border:0; background:#2f6df9; color:#fff; cursor:pointer; }
+    button.secondary { background:#233052; }
+    .log { margin-top:16px; padding:12px; background:#11182a; border-radius:8px; min-height:120px; }
+    .msg { margin:8px 0; }
+    .me { color:#9cd67b; }
+    .jarvis { color:#7bb5ff; }
+    .status { font-size:12px; opacity:0.8; margin-left:8px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Jarvis Voice Chat</h1>
+  <div class="row">
+    <input id="text" type="text" placeholder="Скажите или введите команду…"/>
+    <button id="speakBtn" class="secondary">🎙️ Говорить</button>
+    <button id="sendBtn">Отправить</button>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="log" id="log"></div>
+  <audio id="player" autoplay></audio>
+</div>
+
+<script>
+  const input = document.getElementById('text');
+  const speakBtn = document.getElementById('speakBtn');
+  const sendBtn = document.getElementById('sendBtn');
+  const log = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  const player = document.getElementById('player');
+
+  function addMsg(text, who) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + (who || '');
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function sendCommand(text) {
+    addMsg('Вы: ' + text, 'me');
+    statusEl.textContent = 'Отправляю…';
+    const res = await fetch('/api/v1/command', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    addMsg('Jarvis: ' + data.reply, 'jarvis');
+    statusEl.textContent = 'Озвучиваю…';
+    const audioRes = await fetch('/api/v1/voice/speak', {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: data.reply
+    });
+    const blob = await audioRes.blob();
+    player.src = URL.createObjectURL(blob);
+    statusEl.textContent = '';
+  }
+
+  sendBtn.onclick = () => {
+    if (!input.value.trim()) return;
+    sendCommand(input.value.trim());
+    input.value = '';
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+
+  // Client-side STT via Web Speech API
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null; let listening = false;
+  if (SpeechRecognition) {
+    rec = new SpeechRecognition();
+    rec.lang = 'ru-RU';
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onstart = () => { listening = true; statusEl.textContent = 'Слушаю…'; };
+    rec.onerror = (e) => { statusEl.textContent = 'Ошибка распознавания: ' + e.error; listening = false; };
+    rec.onend = () => { listening = false; statusEl.textContent = ''; };
+    rec.onresult = (e) => {
+      let finalTxt = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTxt += e.results[i][0].transcript;
+      }
+      if (finalTxt.trim()) {
+        input.value = finalTxt.trim();
+        sendBtn.click();
+      }
+    };
+  } else {
+    speakBtn.disabled = true;
+    speakBtn.textContent = '🎙️ Нет поддержки STT';
+  }
+
+  speakBtn.onclick = () => {
+    if (!rec) return;
+    if (listening) { try { rec.stop(); } catch(e){}; return; }
+    try { rec.start(); } catch(e){}
+  };
+</script>
+</body>
+</html>
+
+
+
+
+
